@@ -430,8 +430,9 @@
       const isIOS = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
 
       if (isAndroid) {
-        // Android intent: open app, fall back to Play Store if not installed
-        window.location.href = 'intent://open/#Intent;scheme=magicplan;package=com.sensopia.magicplan;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.sensopia.magicplan;end';
+        // Launcher intent: opens app by package name directly, no URL scheme needed
+        const fallback = encodeURIComponent('https://play.google.com/store/apps/details?id=com.sensopia.magicplan');
+        window.location.href = `intent://app#Intent;package=com.sensopia.magicplan;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;S.browser_fallback_url=${fallback};end`;
       } else if (isIOS) {
         window.location.href = 'magicplan://';
         // Fallback to App Store after 2s if app not installed
