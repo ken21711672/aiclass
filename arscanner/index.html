@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AR Floor Plan Scanner</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
+    body { background: #0A0A0F; color: #fff; min-height: 100vh; }
+
+    /* ── Start screen ── */
+    #startScreen {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; min-height: 100vh; padding: 24px; gap: 20px;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .logo svg { color: #006FFF; }
+    .logo h1 { font-size: 1.2rem; font-weight: 600; }
+    .card {
+      background: #12151C; border: 1px solid #252B3B;
+      border-radius: 16px; padding: 20px; width: 100%; max-width: 400px;
+    }
+    .card h2 { font-size: 0.85rem; font-weight: 600; color: #6B7280;
+                text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 14px; }
+    .step { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .step-num {
+      width: 22px; height: 22px; border-radius: 50%; background: #006FFF;
+      color: #fff; font-size: 0.7rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+    }
+    .step p { font-size: 0.82rem; color: #9CA3AF; line-height: 1.4; }
+    .step strong { color: #D1D5DB; font-weight: 500; }
+    .warn {
+      background: #1c1400; border: 1px solid #78350f;
+      border-radius: 10px; padding: 12px; font-size: 0.78rem; color: #FCD34D;
+      line-height: 1.5;
+    }
+    .btn-start {
+      width: 100%; max-width: 400px;
+      background: linear-gradient(135deg, #006FFF, #0057CC);
+      color: #fff; font-size: 0.95rem; font-weight: 600;
+      padding: 14px; border: none; border-radius: 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-start:active { transform: scale(0.97); }
+    #errorMsg {
+      display: none; background: #1f0000; border: 1px solid #7f1d1d;
+      border-radius: 10px; padding: 12px; font-size: 0.82rem; color: #FCA5A5;
+      width: 100%; max-width: 400px; text-align: center;
+    }
+
+    /* ── AR overlay (shown during XR session) ── */
+    #arOverlay {
+      display: none; position: fixed; inset: 0; z-index: 999;
+      pointer-events: none;
+    }
+    #arOverlay.active { display: block; }
+
+    /* Mini-map in top-right corner */
+    #miniMap {
+      position: absolute; top: 16px; right: 16px;
+      width: 160px; height: 160px;
+      background: rgba(10,10,15,0.85); border: 1px solid #252B3B;
+      border-radius: 12px; overflow: hidden;
+    }
+    #miniMapCanvas { width: 160px; height: 160px; }
+    #miniMapLabel {
+      position: absolute; bottom: 6px; left: 0; right: 0;
+      text-align: center; font-size: 10px; color: #6B7280;
+    }
+
+    /* Scan info bar at top */
+    #scanInfo {
+      position: absolute; top: 16px; left: 16px;
+      background: rgba(10,10,15,0.85); border: 1px solid #252B3B;
+      border-radius: 10px; padding: 10px 14px; font-size: 0.78rem; color: #9CA3AF;
+    }
+    #planeCount { font-size: 1.1rem; font-weight: 700; color: #fff; }
+
+    /* Bottom controls */
+    #arControls {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 20px 24px 36px;
+      background: linear-gradient(transparent, rgba(10,10,15,0.95));
+      pointer-events: all;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+    #scanHint { font-size: 0.8rem; color: #6B7280; text-align: center; }
+    .btn-stop {
+      width: 100%; max-width: 320px;
+      background: #006FFF; color: #fff; font-size: 0.95rem; font-weight: 600;
+      padding: 14px; border: none; border-radius: 14px; cursor: pointer;
+    }
+    .btn-stop:active { transform: scale(0.97); }
+
+    /* ── Result screen ── */
+    #resultScreen {
+      display: none; flex-direction: column; align-items: center;
+      padding: 20px; gap: 16px; min-height: 100vh;
+    }
+    #resultScreen.active { display: flex; }
+    #resultHeader { width: 100%; max-width: 500px; }
+    #resultHeader h1 { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+    #resultHeader p { font-size: 0.8rem; color: #6B7280; }
+    #floorPlanCanvas {
+      width: 100%; max-width: 500px; border-radius: 12px;
+      border: 1px solid #252B3B; background: #f8f8f8;
+    }
+    .result-warn {
+      width: 100%; max-width: 500px;
+      background: #1c1400; border: 1px solid #78350f;
+      border-radius: 10px; padding: 12px; font-size: 0.78rem; color: #FCD34D;
+    }
+    .result-actions {
+      width: 100%; max-width: 500px; display: flex; gap: 10px;
+    }
+    .btn-download {
+      flex: 1; background: linear-gradient(135deg, #006FFF, #0057CC);
+      color: #fff; font-size: 0.88rem; font-weight: 600;
+      padding: 12px; border: none; border-radius: 12px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-rescan {
+      flex: 1; background: #12151C; border: 1px solid #252B3B;
+      color: #9CA3AF; font-size: 0.88rem; font-weight: 500;
+      padding: 12px; border-radius: 12px; cursor: pointer;
+    }
+    .btn-rescan:active, .btn-download:active { transform: scale(0.97); }
+    .main-tool-link {
+      font-size: 0.78rem; color: #6B7280; text-align: center;
+    }
+    .main-tool-link a { color: #006FFF; text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<!-- ── Start Screen ── -->
+<div id="startScreen">
+  <div class="logo">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+    </svg>
+    <h1>AR Floor Plan Scanner</h1>
+  </div>
+
+  <div class="card">
+    <h2>掃描流程</h2>
+    <div class="step">
+      <div class="step-num">1</div>
+      <p><strong>點擊開始掃描</strong>，允許相機權限後進入 AR 模式</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <p><strong>將鏡頭掃向地板和牆壁</strong>，系統自動偵測空間平面</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <p><strong>慢慢走遍各個房間</strong>，右上角小地圖即時顯示偵測結果</p>
+    </div>
+    <div class="step" style="margin-bottom:0">
+      <div class="step-num">4</div>
+      <p><strong>點擊「完成掃描」</strong>，生成平面圖並下載</p>
+    </div>
+  </div>
+
+  <div class="warn">
+    需要 ARCore 相容的 Android 裝置 + Chrome 瀏覽器。<br/>
+    請確認已在 Chrome 設定中開啟「WebXR 裝置 API」。
+  </div>
+
+  <button class="btn-start" onclick="startScan()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="5 3 19 12 5 21 5 3"/>
+    </svg>
+    開始 AR 掃描
+  </button>
+
+  <div id="errorMsg"></div>
+</div>
+
+<!-- ── AR Overlay (DOM overlay during XR session) ── -->
+<div id="arOverlay">
+  <div id="scanInfo">
+    <div id="planeCount">0</div>
+    <div>個平面已偵測</div>
+  </div>
+
+  <div id="miniMap">
+    <canvas id="miniMapCanvas" width="160" height="160"></canvas>
+    <div id="miniMapLabel">即時平面圖</div>
+  </div>
+
+  <div id="arControls">
+    <p id="scanHint">將鏡頭對準地板，緩慢移動以偵測空間</p>
+    <button class="btn-stop" onclick="stopScan()">完成掃描 → 生成平面圖</button>
+  </div>
+</div>
+
+<!-- ── Result Screen ── -->
+<div id="resultScreen">
+  <div id="resultHeader">
+    <h1>生成平面圖</h1>
+    <p id="resultStats">共偵測到 0 個平面</p>
+  </div>
+
+  <canvas id="floorPlanCanvas"></canvas>
+
+  <div class="result-warn">
+    ⚠ 此平面圖由 ARCore 偵測的幾何平面生成，藍色區域為地板，深色線條為牆壁輪廓，比例約略正確但非建築精度。
+  </div>
+
+  <div class="result-actions">
+    <button class="btn-download" onclick="downloadPlan()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+      下載 PNG
+    </button>
+    <button class="btn-rescan" onclick="resetToStart()">重新掃描</button>
+  </div>
+
+  <p class="main-tool-link">
+    下載後前往 <a href="../index.html">Wi-Fi 訊號分析工具</a> 上傳此平面圖
+  </p>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let xrSession   = null;
+  let xrRefSpace  = null;
+  let gl          = null;
+  let glLayer     = null;
+  let xrCanvas    = null;
+  let planeData   = new Map(); // XRPlane → { orientation, worldPoints[] }
+  let animFrameId = null;
+
+  // Mini-map rendering
+  const MM_SIZE = 160;
+  let mmCtx = null;
+
+  // ── Start scan ─────────────────────────────────────────────────────────────
+  async function startScan() {
+    const errEl = document.getElementById('errorMsg');
+    errEl.style.display = 'none';
+
+    if (!navigator.xr) {
+      showError('此裝置不支援 WebXR，請使用 Android Chrome 瀏覽器。');
+      return;
+    }
+
+    const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+    if (!supported) {
+      showError('此裝置不支援 AR（需要 ARCore 相容裝置）。');
+      return;
+    }
+
+    // Prepare WebGL canvas for XR
+    xrCanvas = document.createElement('canvas');
+    gl = xrCanvas.getContext('webgl', { xrCompatible: true });
+    await gl.makeXRCompatible();
+
+    try {
+      xrSession = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['local-floor'],
+        optionalFeatures: ['plane-detection', 'dom-overlay'],
+        domOverlay: { root: document.getElementById('arOverlay') },
+      });
+    } catch (e) {
+      showError('無法啟動 AR 工作階段：' + e.message);
+      return;
+    }
+
+    glLayer = new XRWebGLLayer(xrSession, gl);
+    xrSession.updateRenderState({ baseLayer: glLayer });
+    xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+
+    planeData.clear();
+    mmCtx = document.getElementById('miniMapCanvas').getContext('2d');
+
+    xrSession.addEventListener('end', onSessionEnd);
+
+    // Switch UI
+    document.getElementById('startScreen').style.display = 'none';
+    document.getElementById('arOverlay').classList.add('active');
+
+    xrSession.requestAnimationFrame(onXRFrame);
+  }
+
+  // ── XR frame loop ──────────────────────────────────────────────────────────
+  function onXRFrame(t, frame) {
+    animFrameId = xrSession.requestAnimationFrame(onXRFrame);
+
+    // Clear WebGL layer (transparent, shows camera)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Plane detection
+    if (frame.detectedPlanes) {
+      frame.detectedPlanes.forEach(plane => {
+        const pose = frame.getPose(plane.planeSpace, xrRefSpace);
+        if (!pose) return;
+
+        const m = pose.transform.matrix;
+        const pts = [];
+
+        for (const lp of plane.polygon) {
+          // Transform local point → world XZ (Y is up in WebXR)
+          const wx = m[0]*lp.x + m[4]*lp.y + m[8]*lp.z  + m[12];
+          const wz = m[2]*lp.x + m[6]*lp.y + m[10]*lp.z + m[14];
+          pts.push({ x: wx, z: wz });
+        }
+
+        planeData.set(plane, { orientation: plane.orientation, pts });
+      });
+
+      document.getElementById('planeCount').textContent = frame.detectedPlanes.size;
+      updateMiniMap();
+    }
+  }
+
+  // ── Mini-map ───────────────────────────────────────────────────────────────
+  function updateMiniMap() {
+    if (!mmCtx || planeData.size === 0) return;
+
+    const bounds = getBounds();
+    if (!bounds) return;
+
+    mmCtx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+    mmCtx.fillStyle = '#0d1117';
+    mmCtx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+
+    const pad = 0.3;
+    const scaleX = (MM_SIZE - 16) / (bounds.maxX - bounds.minX + pad*2);
+    const scaleZ = (MM_SIZE - 16) / (bounds.maxZ - bounds.minZ + pad*2);
+    const sc = Math.min(scaleX, scaleZ);
+
+    const toMX = wx => (wx - bounds.minX + pad) * sc + 8;
+    const toMY = wz => (wz - bounds.minZ + pad) * sc + 8;
+
+    planeData.forEach(({ orientation, pts }) => {
+      if (pts.length < 3) return;
+      mmCtx.beginPath();
+      mmCtx.moveTo(toMX(pts[0].x), toMY(pts[0].z));
+      for (let i = 1; i < pts.length; i++) mmCtx.lineTo(toMX(pts[i].x), toMY(pts[i].z));
+      mmCtx.closePath();
+
+      if (orientation === 'horizontal') {
+        mmCtx.fillStyle = 'rgba(0,111,255,0.35)';
+        mmCtx.fill();
+        mmCtx.strokeStyle = 'rgba(0,111,255,0.6)';
+        mmCtx.lineWidth = 1;
+        mmCtx.stroke();
+      } else {
+        mmCtx.fillStyle = 'rgba(255,255,255,0.7)';
+        mmCtx.fill();
+      }
+    });
+  }
+
+  // ── Stop scan ──────────────────────────────────────────────────────────────
+  function stopScan() {
+    if (xrSession) xrSession.end();
+  }
+
+  function onSessionEnd() {
+    xrSession = null;
+    document.getElementById('arOverlay').classList.remove('active');
+    renderFloorPlan();
+    document.getElementById('resultScreen').classList.add('active');
+  }
+
+  // ── Floor plan render ──────────────────────────────────────────────────────
+  function getBounds() {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    planeData.forEach(({ pts }) => {
+      pts.forEach(p => {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.z < minZ) minZ = p.z;
+        if (p.z > maxZ) maxZ = p.z;
+      });
+    });
+    if (!isFinite(minX)) return null;
+    return { minX, maxX, minZ, maxZ };
+  }
+
+  function renderFloorPlan() {
+    const canvas = document.getElementById('floorPlanCanvas');
+    const ctx = canvas.getContext('2d');
+
+    document.getElementById('resultStats').textContent =
+      `共偵測到 ${planeData.size} 個平面`;
+
+    if (planeData.size === 0) {
+      canvas.width = 400; canvas.height = 240;
+      ctx.fillStyle = '#f5f5f5'; ctx.fillRect(0,0,400,240);
+      ctx.fillStyle = '#999'; ctx.font = '15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('未偵測到任何平面，請重新掃描', 200, 120);
+      return;
+    }
+
+    const bounds = getBounds();
+    const PAD = 0.6; // metres padding
+    const sceneW = (bounds.maxX - bounds.minX) + PAD*2;
+    const sceneH = (bounds.maxZ - bounds.minZ) + PAD*2;
+
+    const MAX_PX = 900;
+    const sc = MAX_PX / Math.max(sceneW, sceneH);
+
+    canvas.width  = Math.round(sceneW * sc);
+    canvas.height = Math.round(sceneH * sc);
+
+    const toX = wx => (wx - bounds.minX + PAD) * sc;
+    const toY = wz => (wz - bounds.minZ + PAD) * sc;
+
+    // Background
+    ctx.fillStyle = '#f8f8f8';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw horizontal planes (floor areas) first
+    planeData.forEach(({ orientation, pts }) => {
+      if (orientation !== 'horizontal' || pts.length < 3) return;
+      ctx.beginPath();
+      ctx.moveTo(toX(pts[0].x), toY(pts[0].z));
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(toX(pts[i].x), toY(pts[i].z));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(200, 220, 255, 0.6)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(100,150,220,0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    });
+
+    // Draw vertical planes (walls) on top
+    planeData.forEach(({ orientation, pts }) => {
+      if (orientation !== 'vertical' || pts.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(toX(pts[0].x), toY(pts[0].z));
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(toX(pts[i].x), toY(pts[i].z));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(30,30,30,0.85)';
+      ctx.fill();
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    // Watermark
+    ctx.fillStyle = '#bbb';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('AR Floor Plan · WebXR plane-detection', 8, canvas.height - 8);
+  }
+
+  // ── Download ───────────────────────────────────────────────────────────────
+  function downloadPlan() {
+    const canvas = document.getElementById('floorPlanCanvas');
+    const a = document.createElement('a');
+    a.download = 'ar_floor_plan.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  }
+
+  // ── Reset ──────────────────────────────────────────────────────────────────
+  function resetToStart() {
+    planeData.clear();
+    document.getElementById('resultScreen').classList.remove('active');
+    document.getElementById('startScreen').style.display = 'flex';
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('errorMsg');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+</script>
+</body>
+</html>
