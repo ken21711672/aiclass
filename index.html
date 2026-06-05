@@ -144,11 +144,12 @@
             <p class="text-xs text-gray-500">回到此頁面，使用下方「上傳平面圖」匯入</p>
           </div>
         </div>
-        <div id="magicplanStatus" class="hidden mt-2 bg-unifi-card rounded-lg p-2 flex items-center gap-2">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFB300" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <p class="text-xs text-yellow-400">若 App 未跳轉，請確認已安裝 Magicplan</p>
+        <div id="magicplanStatus" class="hidden mt-2 bg-unifi-card rounded-lg p-2.5 flex-col gap-1.5">
+          <p class="text-xs text-yellow-400 font-medium">無法自動開啟 App</p>
+          <p class="text-xs text-gray-500">請手動開啟 Magicplan，掃描完成後匯出 PNG，再回到此頁上傳。</p>
+          <a href="https://play.google.com/store/apps/details?id=com.sensopia.magicplan"
+             target="_blank"
+             class="text-xs text-blue-400 underline mt-0.5">前往 Play Store 安裝 →</a>
         </div>
       </div>
 
@@ -429,26 +430,32 @@
       const isAndroid = /Android/i.test(ua);
       const isIOS = /iPad|iPhone|iPod/i.test(ua) && !window.MSStream;
 
-      if (isAndroid) {
-        // Launcher intent: opens app by package name directly, no URL scheme needed
-        const fallback = encodeURIComponent('https://play.google.com/store/apps/details?id=com.sensopia.magicplan');
-        window.location.href = `intent://app#Intent;package=com.sensopia.magicplan;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;S.browser_fallback_url=${fallback};end`;
-      } else if (isIOS) {
-        window.location.href = 'magicplan://';
-        // Fallback to App Store after 2s if app not installed
-        setTimeout(() => {
-          window.location.href = 'https://apps.apple.com/app/magicplan/id427424432';
-        }, 2000);
-      } else {
+      if (!isAndroid && !isIOS) {
         showToast('此功能需在手機上使用', 'warn');
         return;
       }
 
-      // Show hint after 3s in case app didn't open
+      const storeUrl = isIOS
+        ? 'https://apps.apple.com/app/magicplan/id427424432'
+        : 'https://play.google.com/store/apps/details?id=com.sensopia.magicplan';
+
+      // Detect if app took over (page goes to background)
+      let appOpened = false;
+      const onHide = () => { if (document.hidden) appOpened = true; };
+      document.addEventListener('visibilitychange', onHide);
+
+      // Try custom URL scheme (most compatible across Android & iOS)
+      window.location.href = 'magicplan://';
+
       setTimeout(() => {
-        document.getElementById('magicplanStatus').classList.remove('hidden');
-        document.getElementById('magicplanStatus').classList.add('flex');
-      }, 3000);
+        document.removeEventListener('visibilitychange', onHide);
+        if (!appOpened) {
+          // App didn't open — show status with manual instructions
+          const status = document.getElementById('magicplanStatus');
+          status.classList.remove('hidden');
+          status.classList.add('flex');
+        }
+      }, 2500);
     }
 
     // ── File Upload ────────────────────────────────────────────────────────
