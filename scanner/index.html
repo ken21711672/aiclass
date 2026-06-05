@@ -3,22 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Room Scanner — Floor Plan Generator</title>
+  <title>Room Scanner</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
     * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
     body { background: #0A0A0F; }
     .btn-primary { background: linear-gradient(135deg, #006FFF, #0057CC); transition: all 0.2s; }
-    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(0,111,255,0.4); }
-    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:active { transform: scale(0.97); }
     .loader { border: 3px solid #252B3B; border-top-color: #006FFF; border-radius: 50%;
-              width: 32px; height: 32px; animation: spin 0.8s linear infinite; }
+              width: 36px; height: 36px; animation: spin 0.8s linear infinite; margin: auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    #resultImg { border: 2px solid #252B3B; }
+    #cvLoading { transition: opacity 0.4s; }
   </style>
 </head>
-<body class="min-h-screen flex flex-col items-center justify-start p-4 gap-6">
+<body class="min-h-screen flex flex-col items-center p-4 gap-5 pb-10">
 
   <!-- Header -->
   <div class="w-full max-w-lg pt-4">
@@ -28,102 +27,118 @@
       </svg>
       <h1 class="text-white font-semibold text-lg">Room Scanner</h1>
     </div>
-    <p class="text-gray-500 text-sm">從相機照片自動生成建築平面圖</p>
+    <p class="text-gray-500 text-sm">從相機照片自動生成建築平面圖（純瀏覽器，無需伺服器）</p>
   </div>
 
-  <!-- Step 1: Capture -->
-  <div class="w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-800 p-5">
-    <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">步驟 1 — 拍攝房間</p>
+  <!-- OpenCV loading banner -->
+  <div id="cvLoading" class="w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-800 p-4 flex items-center gap-3">
+    <div class="loader" style="width:20px;height:20px;border-width:2px;flex-shrink:0;"></div>
+    <div>
+      <p class="text-sm text-gray-300 font-medium">載入 OpenCV.js 中…</p>
+      <p class="text-xs text-gray-600 mt-0.5">首次載入約需 5~15 秒（約 9 MB）</p>
+    </div>
+  </div>
 
-    <div class="bg-gray-800 rounded-xl p-3 mb-4 text-xs text-gray-400 leading-relaxed">
-      <p class="font-medium text-gray-300 mb-1">拍攝建議</p>
-      <ul class="list-disc list-inside space-y-0.5">
-        <li>站在房間角落，對角線方向拍攝</li>
-        <li>盡量讓牆壁完整入鏡</li>
-        <li>光線充足、避免過曝</li>
-        <li>移除前景雜物效果更好</li>
-      </ul>
+  <!-- Main card -->
+  <div id="mainCard" class="hidden w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-800 p-5">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">拍攝房間</p>
+
+    <div class="bg-gray-800 rounded-xl p-3 mb-4 text-xs text-gray-400 leading-relaxed space-y-0.5">
+      <p class="font-medium text-gray-300 mb-1">拍攝建議（效果更好）</p>
+      <p>• 站在房間角落，對角線方向拍攝</p>
+      <p>• 讓牆壁完整入鏡，光線充足</p>
+      <p>• 移除前景雜物，牆面愈簡潔愈好</p>
     </div>
 
     <!-- Preview -->
     <div id="previewBox" class="hidden mb-4">
       <img id="previewImg" src="" alt="Preview"
-           class="w-full rounded-xl object-cover" style="max-height:260px;" />
+           class="w-full rounded-xl object-cover border border-gray-800"
+           style="max-height:250px;" crossorigin="anonymous" />
     </div>
 
     <div class="flex gap-2">
       <button onclick="document.getElementById('fileInput').click()"
-        class="flex-1 btn-primary text-white text-sm font-medium py-2.5 px-4 rounded-xl flex items-center justify-center gap-2">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        class="flex-1 bg-gray-800 border border-gray-700 hover:border-blue-500 hover:text-blue-400
+               text-gray-300 text-sm font-medium py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/>
           <path d="M20 7h-3.38l-1.5-2h-6.24l-1.5 2H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>
         </svg>
-        拍照 / 選擇圖片
+        拍照 / 選圖
       </button>
 
       <button id="processBtn" onclick="processImage()" disabled
-        class="flex-1 bg-gray-700 text-gray-400 text-sm font-medium py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all"
-        style="cursor:not-allowed;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        class="flex-1 bg-gray-700 text-gray-500 text-sm font-medium py-2.5 px-3 rounded-xl
+               flex items-center justify-center gap-2 transition-all" style="cursor:not-allowed;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M1 6s4-4 11-4 11 4 11 4M1 12s4-4 11-4 11 4 11 4M5 18s2-2 7-2 7 2 7 2"/>
         </svg>
         產生平面圖
       </button>
     </div>
-
     <input type="file" id="fileInput" accept="image/*" capture="environment"
            class="hidden" onchange="onFileSelected(event)" />
   </div>
 
-  <!-- Step 2: Processing indicator -->
-  <div id="processingBox" class="hidden w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-800 p-5 flex flex-col items-center gap-3">
-    <div class="loader"></div>
-    <p class="text-sm text-gray-400">分析影像中，請稍候…</p>
-    <p class="text-xs text-gray-600">OpenCV 邊緣偵測 + Hough 線段轉換</p>
+  <!-- Processing -->
+  <div id="processingBox" class="hidden w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-800 p-6 text-center">
+    <div class="loader mb-3"></div>
+    <p class="text-sm text-gray-400">分析影像中…</p>
+    <p class="text-xs text-gray-600 mt-1">Canny 邊緣偵測 + Hough 線段轉換</p>
   </div>
 
-  <!-- Step 3: Result -->
+  <!-- Result -->
   <div id="resultBox" class="hidden w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-800 p-5">
-    <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">步驟 2 — 生成平面圖</p>
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">生成平面圖</p>
+    <canvas id="resultCanvas" class="w-full rounded-xl border border-gray-800 mb-4"></canvas>
 
-    <img id="resultImg" src="" alt="Floor Plan" class="w-full rounded-xl mb-4" />
-
-    <div class="bg-gray-800 rounded-xl p-3 mb-4 text-xs text-gray-400">
-      <p class="text-yellow-400 font-medium mb-1">⚠ 注意</p>
-      <p>此平面圖由單張照片自動生成，僅供參考。牆壁位置可能有偏差，適合用於 Wi-Fi 訊號模擬的概略分析。</p>
+    <div class="bg-yellow-950 border border-yellow-800 rounded-xl p-3 mb-4 text-xs text-yellow-300">
+      此平面圖由單張照片自動生成，僅保留水平／垂直線段作為牆壁輪廓，誤差較大，適合概略的 Wi-Fi 訊號模擬。
     </div>
 
     <div class="flex gap-2">
-      <a id="downloadBtn" href="#" download="floor_plan.png"
-        class="flex-1 btn-primary text-white text-sm font-medium py-2.5 px-4 rounded-xl flex items-center justify-center gap-2">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <button onclick="downloadResult()"
+        class="flex-1 btn-primary text-white text-sm font-medium py-2.5 px-3 rounded-xl flex items-center justify-center gap-2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
         </svg>
-        下載平面圖
-      </a>
-      <button onclick="reset()"
-        class="flex-1 bg-gray-800 border border-gray-700 text-gray-300 text-sm font-medium py-2.5 px-4 rounded-xl hover:border-blue-500 hover:text-blue-400 transition-all">
+        下載 PNG
+      </button>
+      <button onclick="resetAll()"
+        class="flex-1 bg-gray-800 border border-gray-700 hover:border-blue-500 hover:text-blue-400
+               text-gray-300 text-sm font-medium py-2.5 px-3 rounded-xl transition-all">
         重新拍攝
       </button>
     </div>
 
     <p class="text-xs text-gray-600 text-center mt-3">
-      下載後，到
-      <a href="../index.html" class="text-blue-500 underline">Wi-Fi 分析工具</a>
-      上傳此平面圖進行訊號模擬
+      下載後前往
+      <a href="../index.html" class="text-blue-500 underline">Wi-Fi 訊號分析工具</a>
+      上傳此平面圖
     </p>
   </div>
 
-  <!-- Error -->
-  <div id="errorBox" class="hidden w-full max-w-lg bg-red-950 rounded-2xl border border-red-800 p-4">
-    <p class="text-red-400 text-sm font-medium mb-1">處理失敗</p>
-    <p id="errorMsg" class="text-red-300 text-xs"></p>
-    <button onclick="reset()" class="mt-3 text-xs text-gray-400 underline">重試</button>
-  </div>
+  <!-- hidden img used by cv.imread -->
+  <img id="cvSource" class="hidden" crossorigin="anonymous" />
 
+  <!-- OpenCV.js — loaded async -->
   <script>
+    // ── State ────────────────────────────────────────────────────────────────
+    let cvReady = false;
     let selectedFile = null;
 
+    // ── OpenCV ready callback ────────────────────────────────────────────────
+    function onOpenCvReady() {
+      cvReady = true;
+      document.getElementById('cvLoading').style.opacity = '0';
+      setTimeout(() => {
+        document.getElementById('cvLoading').classList.add('hidden');
+        document.getElementById('mainCard').classList.remove('hidden');
+      }, 400);
+    }
+
+    // ── File selected ─────────────────────────────────────────────────────────
     function onFileSelected(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -131,61 +146,143 @@
 
       const url = URL.createObjectURL(file);
       document.getElementById('previewImg').src = url;
+      document.getElementById('cvSource').src = url;
       document.getElementById('previewBox').classList.remove('hidden');
+      document.getElementById('resultBox').classList.add('hidden');
 
       const btn = document.getElementById('processBtn');
       btn.disabled = false;
       btn.style.cursor = 'pointer';
-      btn.className = 'flex-1 btn-primary text-white text-sm font-medium py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all';
-
-      // Hide previous results
-      document.getElementById('resultBox').classList.add('hidden');
-      document.getElementById('errorBox').classList.add('hidden');
+      btn.className = 'flex-1 btn-primary text-white text-sm font-medium py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all';
 
       e.target.value = '';
     }
 
-    async function processImage() {
-      if (!selectedFile) return;
+    // ── Process with OpenCV.js ────────────────────────────────────────────────
+    function processImage() {
+      if (!cvReady || !selectedFile) return;
 
       document.getElementById('processingBox').classList.remove('hidden');
+      document.getElementById('mainCard').classList.add('hidden');
       document.getElementById('resultBox').classList.add('hidden');
-      document.getElementById('errorBox').classList.add('hidden');
-      document.getElementById('processBtn').disabled = true;
 
-      const formData = new FormData();
-      formData.append('image', selectedFile);
-
-      try {
-        const res = await fetch('/process', { method: 'POST', body: formData });
-        const data = await res.json();
-
-        if (!res.ok || data.error) throw new Error(data.error || '伺服器錯誤');
-
-        document.getElementById('resultImg').src = data.floor_plan;
-        document.getElementById('downloadBtn').href = data.floor_plan;
-        document.getElementById('resultBox').classList.remove('hidden');
-      } catch (err) {
-        document.getElementById('errorMsg').textContent = err.message;
-        document.getElementById('errorBox').classList.remove('hidden');
-      } finally {
-        document.getElementById('processingBox').classList.add('hidden');
-        document.getElementById('processBtn').disabled = false;
-      }
+      // Let the browser render the loading state before blocking with CV work
+      setTimeout(() => {
+        try {
+          runCV();
+        } catch (err) {
+          alert('處理失敗：' + err.message);
+          resetAll();
+        }
+      }, 80);
     }
 
-    function reset() {
+    function runCV() {
+      const imgEl = document.getElementById('cvSource');
+
+      // Read source image (RGBA)
+      let src = cv.imread(imgEl);
+
+      // ── Resize to fixed width ─────────────────────────────────────────────
+      const TARGET_W = 900;
+      const scale = TARGET_W / src.cols;
+      let resized = new cv.Mat();
+      let dsize = new cv.Size(TARGET_W, Math.round(src.rows * scale));
+      cv.resize(src, resized, dsize);
+      src.delete();
+
+      const W = resized.cols;
+      const H = resized.rows;
+
+      // ── Greyscale ────────────────────────────────────────────────────────
+      let gray = new cv.Mat();
+      cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY);
+
+      // ── Gaussian blur ─────────────────────────────────────────────────────
+      let blurred = new cv.Mat();
+      cv.GaussianBlur(gray, blurred, new cv.Size(7, 7), 0);
+      gray.delete();
+
+      // ── Canny edge detection ──────────────────────────────────────────────
+      let edges = new cv.Mat();
+      cv.Canny(blurred, edges, 40, 120);
+      blurred.delete();
+
+      // ── Dilate edges ──────────────────────────────────────────────────────
+      let kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+      cv.dilate(edges, edges, kernel);
+      kernel.delete();
+
+      // ── Hough line transform ──────────────────────────────────────────────
+      let lines = new cv.Mat();
+      const minLen = Math.max(W, H) / 8;
+      cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 60, minLen, 30);
+
+      // ── Draw onto white canvas ────────────────────────────────────────────
+      // White background
+      let dst = new cv.Mat(H, W, cv.CV_8UC4, new cv.Scalar(248, 248, 248, 255));
+
+      // Light edge overlay for context
+      let edgeRGBA = new cv.Mat();
+      cv.cvtColor(edges, edgeRGBA, cv.COLOR_GRAY2RGBA);
+      cv.addWeighted(dst, 0.93, edgeRGBA, 0.07, 0, dst);
+      edgeRGBA.delete();
+      edges.delete();
+
+      // Draw orthogonal lines only (walls)
+      const wallColor = new cv.Scalar(25, 25, 25, 255);
+      for (let i = 0; i < lines.rows; i++) {
+        const x1 = lines.data32S[i * 4];
+        const y1 = lines.data32S[i * 4 + 1];
+        const x2 = lines.data32S[i * 4 + 2];
+        const y2 = lines.data32S[i * 4 + 3];
+
+        const angle = Math.abs(Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI);
+        const isH = angle < 18 || angle > 162;
+        const isV = angle > 72 && angle < 108;
+        if (isH || isV) {
+          cv.line(dst, new cv.Point(x1, y1), new cv.Point(x2, y2), wallColor, 3);
+        }
+      }
+      lines.delete();
+      resized.delete();
+
+      // ── Render to canvas ──────────────────────────────────────────────────
+      const canvas = document.getElementById('resultCanvas');
+      canvas.width  = W;
+      canvas.height = H;
+      cv.imshow(canvas, dst);
+      dst.delete();
+
+      // ── Show result ───────────────────────────────────────────────────────
+      document.getElementById('processingBox').classList.add('hidden');
+      document.getElementById('resultBox').classList.remove('hidden');
+    }
+
+    // ── Download ──────────────────────────────────────────────────────────────
+    function downloadResult() {
+      const canvas = document.getElementById('resultCanvas');
+      const a = document.createElement('a');
+      a.download = 'floor_plan.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }
+
+    // ── Reset ─────────────────────────────────────────────────────────────────
+    function resetAll() {
       selectedFile = null;
       document.getElementById('previewBox').classList.add('hidden');
       document.getElementById('resultBox').classList.add('hidden');
-      document.getElementById('errorBox').classList.add('hidden');
+      document.getElementById('processingBox').classList.add('hidden');
+      document.getElementById('mainCard').classList.remove('hidden');
       document.getElementById('previewImg').src = '';
 
       const btn = document.getElementById('processBtn');
       btn.disabled = true;
       btn.style.cursor = 'not-allowed';
-      btn.className = 'flex-1 bg-gray-700 text-gray-400 text-sm font-medium py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all';
+      btn.className = 'flex-1 bg-gray-700 text-gray-500 text-sm font-medium py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all';
     }
   </script>
+  <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()"></script>
 </body>
 </html>
