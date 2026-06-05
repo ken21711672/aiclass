@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UniFi E7 Signal Analyzer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            unifi: { blue: '#006FFF', dark: '#0A0A0F', panel: '#12151C', card: '#1A1E2A', border: '#252B3B' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+    body { background: #0A0A0F; overflow: hidden; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #12151C; }
+    ::-webkit-scrollbar-thumb { background: #252B3B; border-radius: 2px; }
+
+    .sidebar-glow { box-shadow: inset -1px 0 0 #252B3B; }
+    .btn-unifi {
+      background: linear-gradient(135deg, #006FFF 0%, #0057CC 100%);
+      transition: all 0.2s ease;
+    }
+    .btn-unifi:hover { background: linear-gradient(135deg, #1A7FFF 0%, #0066EE 100%); transform: translateY(-1px); box-shadow: 0 4px 15px rgba(0,111,255,0.4); }
+    .btn-unifi:active { transform: translateY(0); }
+
+    .btn-secondary {
+      background: #1A1E2A;
+      border: 1px solid #252B3B;
+      transition: all 0.2s ease;
+    }
+    .btn-secondary:hover { background: #212636; border-color: #006FFF; color: #006FFF; }
+
+    .drop-zone {
+      border: 2px dashed #252B3B;
+      transition: all 0.3s ease;
+    }
+    .drop-zone.dragover {
+      border-color: #006FFF;
+      background: rgba(0,111,255,0.08);
+    }
+    .drop-zone:hover { border-color: #3A4055; }
+
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; animation: pulse-dot 2s infinite; }
+    .status-dot.online { background: #00C853; box-shadow: 0 0 8px #00C853; }
+    .status-dot.scanning { background: #FFB300; box-shadow: 0 0 8px #FFB300; }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    #heatmapCanvas { pointer-events: none; opacity: 0.78; }
+
+    .signal-bar { height: 100%; border-radius: 2px; transition: width 1.5s ease; }
+
+    .ap-card { transition: all 0.2s ease; }
+    .ap-card:hover { background: #212636; }
+    .ap-card.active { border-left: 2px solid #006FFF; }
+
+    #videoModal { backdrop-filter: blur(8px); }
+    #videoEl { border: 2px solid #006FFF; box-shadow: 0 0 30px rgba(0,111,255,0.3); }
+
+    .toast {
+      animation: slide-in 0.3s ease, fade-out 0.5s ease 2.5s forwards;
+    }
+    @keyframes slide-in { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+    @keyframes fade-out { to{opacity:0;transform:translateY(-10px)} }
+
+    .grid-bg {
+      background-image: radial-gradient(circle, #252B3B 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    .loader {
+      border: 3px solid #252B3B;
+      border-top-color: #006FFF;
+      border-radius: 50%;
+      width: 28px; height: 28px;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+  <!-- Top Nav Bar -->
+  <nav class="h-12 bg-unifi-panel border-b border-unifi-border flex items-center px-4 gap-4 z-10 flex-shrink-0">
+    <div class="flex items-center gap-2">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#006FFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="text-white font-semibold text-sm tracking-wide">UniFi AP E7 · Signal Analyzer</span>
+    </div>
+    <div class="h-4 w-px bg-unifi-border mx-1"></div>
+    <span class="text-gray-500 text-xs">Floor Plan Wi-Fi Heatmap Tool</span>
+    <div class="ml-auto flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <div class="status-dot online" id="navStatusDot"></div>
+        <span class="text-xs text-gray-400" id="navStatusText">Ready</span>
+      </div>
+      <a href="https://design.ui.com" target="_blank"
+         class="flex items-center gap-1.5 px-3 py-1.5 rounded-md btn-secondary text-xs text-gray-300">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+        </svg>
+        UniFi Design Center
+      </a>
+    </div>
+  </nav>
+
+  <!-- Main Layout -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ===== LEFT SIDEBAR ===== -->
+    <aside class="w-72 flex flex-col bg-unifi-panel sidebar-glow overflow-y-auto flex-shrink-0">
+
+      <!-- Section 1: Camera -->
+      <div class="p-4 border-b border-unifi-border">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">掃描來源</p>
+        <button id="cameraBtn" onclick="openCamera()"
+          class="w-full btn-unifi text-white text-sm font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+          </svg>
+          開啟相機
+        </button>
+        <p class="text-xs text-gray-600 mt-2 text-center">使用 Webcam 掃描平面圖</p>
+      </div>
+
+      <!-- Section 2: UniFi AP Control Panel -->
+      <div class="p-4 border-b border-unifi-border flex-1">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">UniFi 控制面板</p>
+
+        <!-- AP List -->
+        <div class="space-y-1.5 mb-4">
+
+          <!-- E7 #1 -->
+          <div class="ap-card active bg-unifi-card rounded-md p-2.5 cursor-pointer" onclick="selectAP(this, 0)">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <div class="status-dot online"></div>
+                <span class="text-sm text-white font-medium">E7 — 客廳</span>
+              </div>
+              <span class="text-xs text-green-400 font-mono">-45 dBm</span>
+            </div>
+            <div class="mt-1.5 flex gap-1 items-center">
+              <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div class="signal-bar bg-green-400" style="width:92%"></div>
+              </div>
+              <span class="text-xs px-1 py-0.5 rounded bg-blue-900/60 text-blue-300 font-medium">6 GHz</span>
+            </div>
+            <div class="mt-1.5 flex items-center gap-1.5">
+              <span class="text-xs px-1.5 py-0.5 rounded-full bg-unifi-border text-gray-400">WiFi 7</span>
+              <span class="text-xs text-gray-600">30 dBm · 4×4 MU-MIMO</span>
+            </div>
+          </div>
+
+          <!-- E7 #2 -->
+          <div class="ap-card bg-unifi-card rounded-md p-2.5 cursor-pointer" onclick="selectAP(this, 1)">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <div class="status-dot online"></div>
+                <span class="text-sm text-white font-medium">E7 — 臥室</span>
+              </div>
+              <span class="text-xs text-yellow-400 font-mono">-58 dBm</span>
+            </div>
+            <div class="mt-1.5 flex gap-1 items-center">
+              <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div class="signal-bar bg-yellow-400" style="width:68%"></div>
+              </div>
+              <span class="text-xs px-1 py-0.5 rounded bg-indigo-900/60 text-indigo-300 font-medium">5 GHz</span>
+            </div>
+            <div class="mt-1.5 flex items-center gap-1.5">
+              <span class="text-xs px-1.5 py-0.5 rounded-full bg-unifi-border text-gray-400">WiFi 7</span>
+              <span class="text-xs text-gray-600">30 dBm · 4×4 MU-MIMO</span>
+            </div>
+          </div>
+
+          <!-- E7 #3 -->
+          <div class="ap-card bg-unifi-card rounded-md p-2.5 cursor-pointer" onclick="selectAP(this, 2)">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <div class="status-dot scanning"></div>
+                <span class="text-sm text-white font-medium">E7 — 廚房</span>
+              </div>
+              <span class="text-xs text-orange-400 font-mono">-72 dBm</span>
+            </div>
+            <div class="mt-1.5 flex gap-1 items-center">
+              <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div class="signal-bar bg-orange-400" style="width:42%"></div>
+              </div>
+              <span class="text-xs px-1 py-0.5 rounded bg-blue-900/60 text-blue-300 font-medium">6 GHz</span>
+            </div>
+            <div class="mt-1.5 flex items-center gap-1.5">
+              <span class="text-xs px-1.5 py-0.5 rounded-full bg-unifi-border text-gray-400">WiFi 7</span>
+              <span class="text-xs text-gray-600">30 dBm · 4×4 MU-MIMO</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Signal Simulate Button -->
+        <button id="analyzeBtn" onclick="toggleHeatmap()"
+          class="w-full btn-secondary text-gray-300 text-sm font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 6s4-4 11-4 11 4 11 4M1 12s4-4 11-4 11 4 11 4M5 18s2-2 7-2 7 2 7 2"/>
+          </svg>
+          分析訊號
+        </button>
+
+        <!-- Stats -->
+        <div class="mt-4 grid grid-cols-2 gap-2">
+          <div class="bg-unifi-card rounded-md p-2.5">
+            <p class="text-xs text-gray-500">活躍 AP</p>
+            <p class="text-lg font-bold text-white mt-0.5">3</p>
+          </div>
+          <div class="bg-unifi-card rounded-md p-2.5">
+            <p class="text-xs text-gray-500">覆蓋率</p>
+            <p class="text-lg font-bold text-green-400 mt-0.5" id="coveragePct">—</p>
+          </div>
+          <div class="bg-unifi-card rounded-md p-2.5">
+            <p class="text-xs text-gray-500">MLO</p>
+            <p class="text-lg font-bold text-blue-400 mt-0.5">啟用</p>
+          </div>
+          <div class="bg-unifi-card rounded-md p-2.5">
+            <p class="text-xs text-gray-500">Tx Power</p>
+            <p class="text-lg font-bold text-white mt-0.5">30 dBm</p>
+          </div>
+        </div>
+
+        <!-- Heatmap Legend — UniFi style -->
+        <div id="heatmapLegend" class="mt-4 hidden">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-gray-400">Primary Coverage</span>
+            <div class="flex gap-1">
+              <span class="text-xs px-1.5 py-0.5 rounded text-gray-500 bg-unifi-border cursor-pointer hover:text-gray-300">2.4 GHz</span>
+              <span id="bandActive" class="text-xs px-1.5 py-0.5 rounded text-blue-300 bg-blue-900/60 font-medium cursor-pointer">5 GHz</span>
+              <span class="text-xs px-1.5 py-0.5 rounded text-gray-500 bg-unifi-border cursor-pointer hover:text-gray-300">6 GHz</span>
+            </div>
+          </div>
+
+          <!-- Colour bar -->
+          <div class="h-3 rounded-full" style="background: linear-gradient(90deg,
+            #E03020  0%,
+            #E86020 22%,
+            #F0A020 38%,
+            #C8CC20 55%,
+            #60C030 72%,
+            #28B040 100%)">
+          </div>
+
+          <!-- Tick marks — positioned for display range −90 → −50 dBm (40 dB span)
+               −85 = 12.5 %   −77 = 32.5 %   −67 = 57.5 % -->
+          <div class="relative mt-0.5" style="height:22px; font-size:10px;">
+            <div class="absolute flex flex-col items-center" style="left:12.5%; transform:translateX(-50%)">
+              <div class="w-px h-1.5 bg-gray-500"></div>
+              <span class="text-gray-400 font-mono mt-0.5">-85</span>
+            </div>
+            <div class="absolute flex flex-col items-center" style="left:32.5%; transform:translateX(-50%)">
+              <div class="w-px h-1.5 bg-gray-500"></div>
+              <span class="text-gray-400 font-mono mt-0.5">-77</span>
+            </div>
+            <div class="absolute flex flex-col items-center" style="left:57.5%; transform:translateX(-50%)">
+              <div class="w-px h-1.5 bg-gray-500"></div>
+              <span class="text-gray-400 font-mono mt-0.5">-67</span>
+            </div>
+          </div>
+
+          <div class="flex justify-between" style="font-size:10px;">
+            <span class="text-gray-600">Weak</span>
+            <span class="text-gray-600">Strong</span>
+          </div>
+        </div>
+
+        <!-- Clear Heatmap -->
+        <button id="clearHeatmapBtn" onclick="clearHeatmap()" class="hidden w-full mt-2 py-2 px-4 rounded-lg text-sm text-gray-400 bg-unifi-card border border-unifi-border hover:border-red-500 hover:text-red-400 transition-all">
+          清除熱力圖
+        </button>
+      </div>
+
+      <!-- Section 3: File Upload -->
+      <div class="p-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">上傳平面圖</p>
+        <div id="dropZone" class="drop-zone rounded-xl p-5 text-center cursor-pointer"
+          ondragover="handleDragOver(event)"
+          ondragleave="handleDragLeave(event)"
+          ondrop="handleDrop(event)"
+          onclick="document.getElementById('fileInput').click()">
+          <div id="dropContent">
+            <div class="w-10 h-10 mx-auto mb-2 rounded-lg bg-unifi-card flex items-center justify-center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#006FFF" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+              </svg>
+            </div>
+            <p class="text-sm text-gray-300 font-medium">拖曳或點擊上傳</p>
+            <p class="text-xs text-gray-600 mt-1">JPG · PNG · PDF</p>
+          </div>
+          <div id="uploadProgress" class="hidden items-center justify-center gap-2">
+            <div class="loader"></div>
+            <span class="text-sm text-gray-400">處理中...</span>
+          </div>
+        </div>
+        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.pdf" class="hidden" onchange="handleFileInput(event)" />
+        <input type="file" id="cameraFallbackInput" accept="image/*" capture="environment" class="hidden" onchange="handleCameraFallback(event)" />
+
+        <!-- Uploaded file info -->
+        <div id="fileInfo" class="hidden mt-2 bg-unifi-card rounded-lg p-2.5 flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#006FFF" stroke-width="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <span class="text-xs text-gray-300 truncate flex-1" id="fileName">filename.png</span>
+          <button onclick="clearFloorPlan()" class="text-gray-600 hover:text-red-400 transition-colors">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== MAIN VIEW ===== -->
+    <main class="flex-1 relative bg-unifi-dark overflow-hidden" id="mainView">
+
+      <!-- Empty state -->
+      <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center grid-bg">
+        <div class="text-center max-w-sm">
+          <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-unifi-card border border-unifi-border flex items-center justify-center">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#3A4055" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+            </svg>
+          </div>
+          <h2 class="text-white font-semibold text-lg mb-2">尚未載入平面圖</h2>
+          <p class="text-gray-600 text-sm leading-relaxed">從左側上傳 JPG/PNG/PDF 平面圖，<br/>或開啟相機掃描現場環境。</p>
+        </div>
+      </div>
+
+      <!-- Floor plan image container -->
+      <div id="floorPlanContainer" class="hidden absolute inset-0 flex items-center justify-center p-8">
+        <div class="relative inline-block">
+          <img id="floorPlanImg" src="" alt="Floor Plan"
+            class="max-w-full max-h-full rounded-lg shadow-2xl"
+            style="max-height: calc(100vh - 120px);"
+            onload="onFloorPlanLoaded()" />
+          <canvas id="heatmapCanvas" class="absolute inset-0 rounded-lg hidden"
+            style="width:100%; height:100%;"></canvas>
+          <!-- AP markers will be injected here -->
+          <div id="apMarkers"></div>
+        </div>
+      </div>
+
+      <!-- Click-to-place AP hint -->
+      <div id="apHint" class="hidden absolute bottom-4 left-1/2 -translate-x-1/2 bg-unifi-card border border-unifi-border rounded-full px-4 py-2 text-xs text-gray-400 flex items-center gap-2">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#006FFF" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        在平面圖上點擊以放置 AP 位置
+      </div>
+    </main>
+  </div>
+
+  <!-- ===== CAMERA MODAL ===== -->
+  <div id="videoModal" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center" onclick="closeCameraOnBackdrop(event)">
+    <div class="bg-unifi-panel rounded-2xl border border-unifi-border p-5 max-w-2xl w-full mx-4" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <div class="status-dot online"></div>
+          <h3 class="text-white font-semibold">相機串流</h3>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="captureFrame()"
+            class="btn-unifi text-white text-sm px-4 py-1.5 rounded-lg flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/><path d="M20 7h-3.38l-1.5-2h-6.24l-1.5 2H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>
+            </svg>
+            截圖作為平面圖
+          </button>
+          <button onclick="closeCamera()" class="text-gray-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-unifi-card">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <video id="videoEl" autoplay playsinline class="w-full rounded-xl bg-black" style="max-height:420px;object-fit:cover;"></video>
+      <canvas id="captureCanvas" class="hidden"></canvas>
+      <p class="text-xs text-gray-600 mt-3 text-center">* magicplan Cloud API 整合將於此處生成建築圖紙</p>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2"></div>
+
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────
+    let mediaStream = null;
+    let heatmapActive = false;
+    let selectedAPIndex = 0;
+    let floorPlanLoaded = false;
+    // All three units are UniFi AP E7 (identical hardware, 30 dBm / WiFi 7)
+    // strength = 0.6 baseline; coverage differences come from distance + wall physics
+    let apPositions = [
+      { x: 0.3,  y: 0.4, strength: 0.6, color: '#00C853' },
+      { x: 0.65, y: 0.3, strength: 0.6, color: '#FFB300' },
+      { x: 0.55, y: 0.7, strength: 0.6, color: '#FF5722' }
+    ];
+
+    // ── Toast ──────────────────────────────────────────────────────────────
+    function showToast(msg, type = 'info') {
+      const colors = { info: 'border-blue-500 bg-unifi-card', success: 'border-green-500 bg-unifi-card', warn: 'border-yellow-500 bg-unifi-card', error: 'border-red-500 bg-unifi-card' };
+      const icons = {
+        info: '<path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+        success: '<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+        warn: '<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>',
+        error: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>'
+      };
+      const el = document.createElement('div');
+      el.className = `toast flex items-center gap-3 px-4 py-3 rounded-xl border ${colors[type]} text-sm text-gray-200 shadow-xl`;
+      el.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icons[type]}</svg>${msg}`;
+      document.getElementById('toastContainer').appendChild(el);
+      setTimeout(() => el.remove(), 3200);
+    }
+
+    // ── Status bar ─────────────────────────────────────────────────────────
+    function setStatus(text, state = 'online') {
+      document.getElementById('navStatusText').textContent = text;
+      const dot = document.getElementById('navStatusDot');
+      dot.className = `status-dot ${state}`;
+    }
+
+    // ── Camera ─────────────────────────────────────────────────────────────
+    async function openCamera() {
+      // getUserMedia requires a secure context (HTTPS or localhost).
+      // When opened as file:// or plain http://, mediaDevices is undefined.
+      // Fall back to <input capture> which invokes the native camera without HTTPS.
+      if (!window.isSecureContext || !navigator.mediaDevices) {
+        showToast('非 HTTPS 環境，改用相機快照模式', 'warn');
+        document.getElementById('cameraFallbackInput').click();
+        return;
+      }
+      try {
+        setStatus('請求相機權限...', 'scanning');
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: 1280, height: 720 }, audio: false });
+        document.getElementById('videoEl').srcObject = mediaStream;
+        document.getElementById('videoModal').classList.remove('hidden');
+        setStatus('相機串流中', 'online');
+        showToast('相機已成功開啟', 'success');
+      } catch (err) {
+        setStatus('Ready', 'online');
+        if (err.name === 'NotAllowedError') showToast('相機存取被拒絕，請允許瀏覽器使用相機', 'error');
+        else if (err.name === 'NotFoundError') showToast('找不到相機裝置', 'error');
+        else showToast('無法開啟相機：' + err.message, 'error');
+      }
+    }
+
+    function handleCameraFallback(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        loadFloorPlan(url, 'camera_capture.jpg');
+        showToast('相機截圖已設為平面圖', 'success');
+      }
+      e.target.value = '';
+    }
+
+    function closeCamera() {
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      document.getElementById('videoEl').srcObject = null;
+      document.getElementById('videoModal').classList.add('hidden');
+      setStatus('Ready', 'online');
+    }
+
+    function closeCameraOnBackdrop(e) {
+      if (e.target === document.getElementById('videoModal')) closeCamera();
+    }
+
+    function captureFrame() {
+      const video = document.getElementById('videoEl');
+      const canvas = document.getElementById('captureCanvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        loadFloorPlan(url, 'camera_capture.jpg');
+        closeCamera();
+        showToast('截圖已設為平面圖', 'success');
+      }, 'image/jpeg', 0.92);
+    }
+
+    // ── File Upload ────────────────────────────────────────────────────────
+    function handleDragOver(e) {
+      e.preventDefault();
+      document.getElementById('dropZone').classList.add('dragover');
+    }
+
+    function handleDragLeave(e) {
+      document.getElementById('dropZone').classList.remove('dragover');
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('dropZone').classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) processFile(file);
+    }
+
+    function handleFileInput(e) {
+      const file = e.target.files[0];
+      if (file) processFile(file);
+      e.target.value = '';
+    }
+
+    function processFile(file) {
+      const allowed = ['image/jpeg', 'image/png', 'application/pdf'];
+      if (!allowed.includes(file.type)) { showToast('只支援 JPG、PNG、PDF 格式', 'warn'); return; }
+
+      // Show loading
+      document.getElementById('dropContent').classList.add('hidden');
+      document.getElementById('uploadProgress').classList.remove('hidden');
+      document.getElementById('uploadProgress').classList.add('flex');
+
+      setTimeout(() => {
+        document.getElementById('dropContent').classList.remove('hidden');
+        document.getElementById('uploadProgress').classList.add('hidden');
+        document.getElementById('uploadProgress').classList.remove('flex');
+
+        if (file.type === 'application/pdf') {
+          // PDF: show placeholder
+          loadFloorPlan(null, file.name, true);
+        } else {
+          const url = URL.createObjectURL(file);
+          loadFloorPlan(url, file.name);
+        }
+      }, 900);
+    }
+
+    function loadFloorPlan(url, name, isPDF = false) {
+      clearHeatmap();
+      document.getElementById('emptyState').classList.add('hidden');
+      document.getElementById('floorPlanContainer').classList.remove('hidden');
+      document.getElementById('fileInfo').classList.remove('hidden');
+      document.getElementById('fileName').textContent = name;
+      document.getElementById('apHint').classList.remove('hidden');
+
+      if (isPDF) {
+        // PDF placeholder
+        const img = document.getElementById('floorPlanImg');
+        img.src = 'data:image/svg+xml,' + encodeURIComponent(`
+          <svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" style="background:#12151C">
+            <rect x="40" y="40" width="720" height="520" rx="8" fill="none" stroke="#252B3B" stroke-width="2"/>
+            <rect x="40" y="40" width="720" height="60" rx="8" fill="#1A1E2A"/>
+            <text x="400" y="78" fill="#006FFF" font-family="Inter,sans-serif" font-size="16" font-weight="600" text-anchor="middle">PDF 平面圖</text>
+            <text x="400" y="320" fill="#3A4055" font-family="Inter,sans-serif" font-size="14" text-anchor="middle">${name}</text>
+            <text x="400" y="345" fill="#252B3B" font-family="Inter,sans-serif" font-size="12" text-anchor="middle">PDF 預覽需整合後端渲染服務</text>
+          </svg>`);
+        floorPlanLoaded = true;
+        onFloorPlanLoaded();
+      } else {
+        document.getElementById('floorPlanImg').src = url;
+      }
+
+      setStatus('平面圖已載入', 'online');
+      showToast(`已載入：${name}`, 'success');
+    }
+
+    function clearFloorPlan() {
+      clearHeatmap();
+      document.getElementById('emptyState').classList.remove('hidden');
+      document.getElementById('floorPlanContainer').classList.add('hidden');
+      document.getElementById('fileInfo').classList.add('hidden');
+      document.getElementById('apHint').classList.add('hidden');
+      document.getElementById('floorPlanImg').src = '';
+      document.getElementById('apMarkers').innerHTML = '';
+      floorPlanLoaded = false;
+      setStatus('Ready', 'online');
+    }
+
+    function onFloorPlanLoaded() {
+      floorPlanLoaded = true;
+      renderAPMarkers();
+      // Allow clicking on floorPlanContainer to place AP
+      document.getElementById('floorPlanImg').addEventListener('click', onFloorPlanClick);
+    }
+
+    // ── AP Markers ─────────────────────────────────────────────────────────
+    function renderAPMarkers() {
+      const img = document.getElementById('floorPlanImg');
+      const container = document.getElementById('apMarkers');
+      container.innerHTML = '';
+      const w = img.offsetWidth, h = img.offsetHeight;
+      apPositions.forEach((ap, i) => {
+        const el = document.createElement('div');
+        el.style.cssText = `position:absolute;left:${ap.x * w - 14}px;top:${ap.y * h - 14}px;width:28px;height:28px;border-radius:50%;background:${ap.color}33;border:2px solid ${ap.color};display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.2s;`;
+        el.title = `AP ${i + 1}`;
+        el.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${ap.color}" stroke-width="2.5"><path d="M5 12.55a11 11 0 0114.08 0M1.42 9a16 16 0 0121.16 0M8.53 16.11a6 6 0 016.95 0M12 20h.01"/></svg>`;
+        el.addEventListener('mouseenter', () => el.style.transform = 'scale(1.2)');
+        el.addEventListener('mouseleave', () => el.style.transform = 'scale(1)');
+        el.addEventListener('click', (e) => { e.stopPropagation(); selectAPByIndex(i); });
+        container.appendChild(el);
+      });
+    }
+
+    function onFloorPlanClick(e) {
+      if (heatmapActive) return;
+      const img = e.currentTarget;
+      const rect = img.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      apPositions[selectedAPIndex].x = x;
+      apPositions[selectedAPIndex].y = y;
+      renderAPMarkers();
+      showToast(`AP ${selectedAPIndex + 1} 位置已更新`, 'info');
+    }
+
+    function selectAP(el, index) {
+      document.querySelectorAll('.ap-card').forEach(c => c.classList.remove('active'));
+      el.classList.add('active');
+      selectedAPIndex = index;
+    }
+
+    function selectAPByIndex(i) {
+      const cards = document.querySelectorAll('.ap-card');
+      cards.forEach(c => c.classList.remove('active'));
+      if (cards[i]) cards[i].classList.add('active');
+      selectedAPIndex = i;
+    }
+
+    // ── Signal Physics Model ───────────────────────────────────────────────
+    // IEEE 802.11 log-distance path loss + ray-cast wall attenuation.
+    // UniFi Network Controller API would supply real Tx power & AP positions;
+    // here we use the same model with user-placed AP markers as input.
+    const SIM = {
+      txPower:       30,    // dBm — UniFi AP E7, 5 GHz band (spec: 30 dBm)
+      freqGHz:      5.0,    // GHz — E7 primary band (also supports 6 GHz / 2.4 GHz)
+      pathLossExp:  2.8,    // n: 2=free-space, 3=heavy indoor
+      wallAtten:    10,     // dB per wall crossing (drywall ~3, concrete ~12, avg 10)
+      floorWidthM:  15,     // assumed real-world width in metres for distance scaling
+      wallThresh:   110,    // luminance 0-255; below this = wall pixel
+      resolution:    5,     // simulation grid block size (px) — bigger = faster
+      minDbm:      -92,
+      maxDbm:      -38,
+    };
+
+    let wallPixelData = null;  // ImageData of floor plan for wall detection
+
+    function captureWallData() {
+      const img = document.getElementById('floorPlanImg');
+      const c = document.createElement('canvas');
+      c.width = img.offsetWidth;
+      c.height = img.offsetHeight;
+      const ctx = c.getContext('2d');
+      try {
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        wallPixelData = ctx.getImageData(0, 0, c.width, c.height);
+      } catch (_) {
+        wallPixelData = null; // cross-origin (shouldn't happen with blob URLs)
+      }
+    }
+
+    function luminance(x, y) {
+      if (!wallPixelData) return 255;
+      const d = wallPixelData.data;
+      const w = wallPixelData.width;
+      const h = wallPixelData.height;
+      const xi = Math.max(0, Math.min(w - 1, Math.round(x)));
+      const yi = Math.max(0, Math.min(h - 1, Math.round(y)));
+      const i = (yi * w + xi) * 4;
+      // Perceived luminance (Rec. 709)
+      return d[i] * 0.2126 + d[i+1] * 0.7152 + d[i+2] * 0.0722;
+    }
+
+    // Count distinct wall crossings along ray (AP → pixel).
+    // Skips the first 8px from the AP to ignore the marker itself.
+    function countWallCrossings(ax, ay, px, py) {
+      if (!wallPixelData) return 0;
+      const dist = Math.hypot(px - ax, py - ay);
+      if (dist < 2) return 0;
+      const steps = Math.max(1, Math.ceil(dist / 2)); // sample every 2 px
+      let crossings = 0;
+      let prevWall = false;
+      const skipFrac = Math.min(0.15, 8 / dist); // skip ~8px near AP
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        if (t < skipFrac) continue;
+        const lum = luminance(ax + (px - ax) * t, ay + (py - ay) * t);
+        const isWall = lum < SIM.wallThresh;
+        if (isWall && !prevWall) crossings++;
+        prevWall = isWall;
+      }
+      return crossings;
+    }
+
+    // Received signal in dBm at canvas pixel (px, py) from one AP.
+    function rxSignal(ax, ay, apStrength, px, py, canvasW) {
+      const ppm = canvasW / SIM.floorWidthM;            // pixels per metre
+      const distM = Math.max(0.3, Math.hypot(px - ax, py - ay) / ppm);
+      // Free-space path loss at 1 m reference distance
+      const fsplRef = 20 * Math.log10(SIM.freqGHz * 1e9) - 147.55; // Friis constant
+      const pl = fsplRef + 10 * SIM.pathLossExp * Math.log10(distM);
+      const walls = countWallCrossings(ax, ay, px, py);
+      const apOffsetDb = (apStrength - 0.6) * 14; // -8 … +6 dB tweak per AP card
+      return SIM.txPower - pl - walls * SIM.wallAtten + apOffsetDb;
+    }
+
+    // Best-server signal across all APs (dBm).
+    function bestSignal(px, py, canvasW, canvasH) {
+      let best = SIM.minDbm;
+      for (const ap of apPositions) {
+        const s = rxSignal(ap.x * canvasW, ap.y * canvasH, ap.strength, px, py, canvasW);
+        if (s > best) best = s;
+      }
+      return Math.max(SIM.minDbm, Math.min(SIM.maxDbm, best));
+    }
+
+    // Map dBm → RGBA using UniFi's three threshold anchors: -85 (red), -77 (orange), -67 (green).
+    // Colour anchors match the legend gradient exactly.
+    const COLOUR_ANCHORS = [
+      { dbm: -87,  r: 180, g:  20, b:  10 },  // dead-zone edge (fades to transparent below)
+      { dbm: -85,  r: 224, g:  48, b:  32 },  // red   — threshold 1
+      { dbm: -77,  r: 240, g: 160, b:  32 },  // orange — threshold 2
+      { dbm: -67,  r: 200, g: 204, b:  32 },  // yellow-green — threshold 3
+      { dbm: -55,  r:  96, g: 192, b:  48 },  // green
+      { dbm: -40,  r:  40, g: 176, b:  64 },  // strong green
+    ];
+
+    function dbmToRGBA(dbm) {
+      if (dbm <= -89) return null; // below noise floor — fully transparent
+
+      // Find surrounding anchors
+      let lo = COLOUR_ANCHORS[0], hi = COLOUR_ANCHORS[1];
+      for (let i = 0; i < COLOUR_ANCHORS.length - 1; i++) {
+        if (dbm >= COLOUR_ANCHORS[i].dbm && dbm < COLOUR_ANCHORS[i + 1].dbm) {
+          lo = COLOUR_ANCHORS[i]; hi = COLOUR_ANCHORS[i + 1]; break;
+        }
+        if (dbm >= COLOUR_ANCHORS[COLOUR_ANCHORS.length - 1].dbm) {
+          lo = hi = COLOUR_ANCHORS[COLOUR_ANCHORS.length - 1]; break;
+        }
+      }
+
+      const t = lo === hi ? 1 : (dbm - lo.dbm) / (hi.dbm - lo.dbm);
+      const r = Math.round(lo.r + (hi.r - lo.r) * t);
+      const g = Math.round(lo.g + (hi.g - lo.g) * t);
+      const b = Math.round(lo.b + (hi.b - lo.b) * t);
+
+      // Alpha: weak signal = more transparent so floor plan shows through
+      const strength = Math.max(0, Math.min(1, (dbm - (-89)) / ((-40) - (-89))));
+      const alpha = Math.round(70 + strength * 160);
+      return [r, g, b, alpha];
+    }
+
+    // ── Heatmap orchestration ──────────────────────────────────────────────
+    function toggleHeatmap() {
+      if (!floorPlanLoaded) { showToast('請先載入平面圖', 'warn'); return; }
+      if (heatmapActive) { clearHeatmap(); return; }
+      runHeatmap();
+    }
+
+    async function runHeatmap() {
+      const img    = document.getElementById('floorPlanImg');
+      const canvas = document.getElementById('heatmapCanvas');
+      const W = img.offsetWidth;
+      const H = img.offsetHeight;
+      canvas.width  = W;
+      canvas.height = H;
+
+      // Disable button while computing
+      const btn = document.getElementById('analyzeBtn');
+      btn.disabled = true;
+      btn.innerHTML = `<div class="loader" style="width:16px;height:16px;border-width:2px"></div> 計算中…`;
+      setStatus('訊號傳播模擬中...', 'scanning');
+
+      captureWallData();
+
+      const res  = SIM.resolution;
+      const cols = Math.ceil(W / res);
+      const rows = Math.ceil(H / res);
+
+      // Low-res signal buffer
+      const buf = new Float32Array(cols * rows);
+
+      // Chunk processing via requestAnimationFrame to keep UI responsive
+      await new Promise(resolve => {
+        let row = 0;
+        const CHUNK = 18;
+        function step() {
+          const end = Math.min(row + CHUNK, rows);
+          for (let sy = row; sy < end; sy++) {
+            for (let sx = 0; sx < cols; sx++) {
+              const px = sx * res + res * 0.5;
+              const py = sy * res + res * 0.5;
+              buf[sy * cols + sx] = bestSignal(px, py, W, H);
+            }
+          }
+          row = end;
+          if (row < rows) requestAnimationFrame(step);
+          else resolve();
+        }
+        requestAnimationFrame(step);
+      });
+
+      // Render low-res buffer → offscreen canvas, then scale up (gives natural smoothing)
+      const off    = document.createElement('canvas');
+      off.width    = cols;
+      off.height   = rows;
+      const offCtx = off.getContext('2d');
+      const imgd   = offCtx.createImageData(cols, rows);
+
+      let coveredCells = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const rgba = dbmToRGBA(buf[i]);
+        const b    = i * 4;
+        if (rgba) {
+          imgd.data[b]   = rgba[0];
+          imgd.data[b+1] = rgba[1];
+          imgd.data[b+2] = rgba[2];
+          imgd.data[b+3] = rgba[3];
+          if (buf[i] > -75) coveredCells++;
+        } else {
+          imgd.data[b+3] = 0;
+        }
+      }
+      offCtx.putImageData(imgd, 0, 0);
+
+      // Scale to full canvas with bilinear smoothing
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(off, 0, 0, W, H);
+
+      canvas.classList.remove('hidden');
+      heatmapActive = true;
+
+      // Update UI
+      const pct = Math.round((coveredCells / buf.length) * 100);
+      document.getElementById('coveragePct').textContent = pct + '%';
+      document.getElementById('heatmapLegend').classList.remove('hidden');
+      document.getElementById('clearHeatmapBtn').classList.remove('hidden');
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 6s4-4 11-4 11 4 11 4M1 12s4-4 11-4 11 4 11 4M5 18s2-2 7-2 7 2 7 2"/></svg>重新分析`;
+      setStatus('熱力圖已生成（物理模型）', 'online');
+      showToast(`訊號模擬完成，覆蓋率 ${pct}%（-75 dBm 以上）`, 'success');
+    }
+
+    function clearHeatmap() {
+      const canvas = document.getElementById('heatmapCanvas');
+      canvas.classList.add('hidden');
+      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+      heatmapActive = false;
+      document.getElementById('heatmapLegend').classList.add('hidden');
+      document.getElementById('clearHeatmapBtn').classList.add('hidden');
+      document.getElementById('coveragePct').textContent = '—';
+      document.getElementById('analyzeBtn').innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 6s4-4 11-4 11 4 11 4M1 12s4-4 11-4 11 4 11 4M5 18s2-2 7-2 7 2 7 2"/>
+        </svg>分析訊號`;
+    }
+
+    // Re-render markers on window resize
+    window.addEventListener('resize', () => {
+      if (floorPlanLoaded) {
+        renderAPMarkers();
+        if (heatmapActive) runHeatmap();
+      }
+    });
+  </script>
+</body>
+</html>
