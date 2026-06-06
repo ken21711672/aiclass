@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AR 平面圖掃描</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+    body { background: #0A0F1E; }
+    .btn-primary { background: linear-gradient(135deg, #006FFF, #0057CC); transition: all 0.2s; }
+    .btn-primary:active { transform: scale(0.97); }
+    .card { background: #111827; border: 1px solid #1F2937; }
+    @keyframes pulse-ring {
+      0%   { transform: scale(0.9); opacity: 0.8; }
+      70%  { transform: scale(1.15); opacity: 0; }
+      100% { transform: scale(1.15); opacity: 0; }
+    }
+    .pulse::before {
+      content: ''; position: absolute; inset: -8px; border-radius: 50%;
+      border: 2px solid #006FFF;
+      animation: pulse-ring 2s ease-out infinite;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-5 gap-6">
+
+  <!-- Header -->
+  <div class="text-center">
+    <div class="relative inline-block pulse mb-4">
+      <div class="w-16 h-16 rounded-full bg-blue-600 bg-opacity-20 flex items-center justify-center">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#006FFF" stroke-width="1.5">
+          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+      </div>
+    </div>
+    <h1 class="text-white text-2xl font-semibold mb-1">AR 平面圖掃描</h1>
+    <p class="text-gray-500 text-sm">掃描房間，自動生成建築平面圖</p>
+  </div>
+
+  <!-- Main card -->
+  <div class="card rounded-2xl p-6 w-full max-w-sm">
+
+    <!-- Android: open app -->
+    <div id="androidSection">
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">Android 裝置</p>
+      <button onclick="openARApp()"
+        class="btn-primary w-full text-white text-sm font-semibold py-3 px-4 rounded-xl flex items-center justify-center gap-2 mb-2">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M20 7h-3.38l-1.5-2h-6.24l-1.5 2H4a2 2 0 00-2 2v10a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/>
+        </svg>
+        開啟 AR 掃描 App
+      </button>
+      <p class="text-xs text-gray-600 text-center">掃描完成後平面圖自動載入分析工具</p>
+
+      <div class="border-t border-gray-800 my-4"></div>
+    </div>
+
+    <!-- Steps -->
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">使用流程</p>
+    <div class="space-y-3 mb-5">
+      <div class="flex items-start gap-3">
+        <span class="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+        <p class="text-gray-400 text-sm">點擊「開啟 AR 掃描 App」，啟動相機掃描</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+        <p class="text-gray-400 text-sm">走到每個房間角落，按「標記角落」</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+        <p class="text-gray-400 text-sm">按「完成輸出」，自動跳轉到 Wi-Fi 分析工具</p>
+      </div>
+      <div class="flex items-start gap-3">
+        <span class="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5">4</span>
+        <p class="text-gray-400 text-sm">平面圖已自動載入，直接點擊放置 AP 進行分析</p>
+      </div>
+    </div>
+
+    <!-- Manual fallback -->
+    <a href="../index.html"
+      class="w-full block text-center bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium py-2.5 px-4 rounded-xl transition-all">
+      手動上傳平面圖 →
+    </a>
+  </div>
+
+  <!-- App not installed notice (hidden by default) -->
+  <div id="notInstalled" class="hidden card rounded-xl p-4 w-full max-w-sm">
+    <p class="text-yellow-400 text-sm font-medium mb-1">⚠ 未偵測到 App</p>
+    <p class="text-gray-500 text-xs">請先透過 Android Studio 安裝 AR 平面圖 App，或使用手動上傳。</p>
+  </div>
+
+  <script>
+    const isAndroid = /Android/i.test(navigator.userAgent);
+
+    // Hide Android section on non-Android devices
+    if (!isAndroid) {
+      document.getElementById('androidSection').classList.add('hidden');
+    }
+
+    function openARApp() {
+      // Android intent URL to open the AR Floor Plan app
+      const intentUrl = 'intent://scan#Intent;scheme=arfloorplan;package=com.floorplan.ar;end';
+      let appOpened = false;
+
+      const onHide = () => { if (document.hidden) appOpened = true; };
+      document.addEventListener('visibilitychange', onHide);
+
+      window.location.href = intentUrl;
+
+      setTimeout(() => {
+        document.removeEventListener('visibilitychange', onHide);
+        if (!appOpened) {
+          document.getElementById('notInstalled').classList.remove('hidden');
+        }
+      }, 2000);
+    }
+  </script>
+</body>
+</html>
