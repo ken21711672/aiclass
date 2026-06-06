@@ -85,27 +85,50 @@
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Mobile sidebar ────────────────────────────────────────────── */
+    @media (max-width: 767px) {
+      #sidebar {
+        position: fixed;
+        left: 0; top: 3rem; bottom: 0;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+        overflow-y: auto;
+      }
+      #sidebar.open { transform: translateX(0); }
+      #sidebarOverlay { display: block; }
+      #sidebarOverlay.hidden { display: none; }
+    }
   </style>
 </head>
 <body class="h-screen w-screen flex flex-col">
 
   <!-- Top Nav Bar -->
   <nav class="h-12 bg-unifi-panel border-b border-unifi-border flex items-center px-4 gap-4 z-10 flex-shrink-0">
+    <!-- Mobile: sidebar toggle -->
+    <button id="sidebarToggle" onclick="toggleSidebar()"
+      class="md:hidden flex items-center justify-center w-8 h-8 rounded-md btn-secondary flex-shrink-0">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
     <div class="flex items-center gap-2">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
         <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#006FFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <span class="text-white font-semibold text-sm tracking-wide">UniFi AP E7 · Signal Analyzer</span>
+      <span class="text-white font-semibold text-sm tracking-wide hidden sm:inline">UniFi AP E7 · Signal Analyzer</span>
+      <span class="text-white font-semibold text-sm tracking-wide sm:hidden">Signal Analyzer</span>
     </div>
-    <div class="h-4 w-px bg-unifi-border mx-1"></div>
-    <span class="text-gray-500 text-xs">Floor Plan Wi-Fi Heatmap Tool</span>
+    <div class="h-4 w-px bg-unifi-border mx-1 hidden md:block"></div>
+    <span class="text-gray-500 text-xs hidden md:inline">Floor Plan Wi-Fi Heatmap Tool</span>
     <div class="ml-auto flex items-center gap-3">
       <div class="flex items-center gap-2">
         <div class="status-dot online" id="navStatusDot"></div>
         <span class="text-xs text-gray-400" id="navStatusText">Ready</span>
       </div>
       <a href="https://design.ui.com" target="_blank"
-         class="flex items-center gap-1.5 px-3 py-1.5 rounded-md btn-secondary text-xs text-gray-300">
+         class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-md btn-secondary text-xs text-gray-300">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
         </svg>
@@ -117,23 +140,14 @@
   <!-- Main Layout -->
   <div class="flex flex-1 overflow-hidden">
 
+    <!-- Overlay for mobile sidebar -->
+    <div id="sidebarOverlay" class="hidden fixed inset-0 z-30 bg-black bg-opacity-60 md:hidden"
+      onclick="closeSidebar()"></div>
+
     <!-- ===== LEFT SIDEBAR ===== -->
-    <aside class="w-72 flex flex-col bg-unifi-panel sidebar-glow overflow-y-auto flex-shrink-0">
+    <aside id="sidebar" class="w-72 flex flex-col bg-unifi-panel sidebar-glow overflow-y-auto flex-shrink-0">
 
-      <!-- Section 1: Magicplan -->
-      <div class="p-4 border-b border-unifi-border">
-        <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">空間掃描</p>
-        <button onclick="openMagicplan()"
-          class="w-full btn-unifi text-white text-sm font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
-          </svg>
-          開啟 Magicplan 掃描
-        </button>
-        <p class="text-xs text-gray-600 mt-2 text-center">掃描完成後匯出 PNG，回到此頁上傳</p>
-      </div>
-
-      <!-- Section 2: UniFi AP Control Panel -->
+      <!-- UniFi AP Control Panel -->
       <div class="p-4 border-b border-unifi-border flex-1">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">UniFi 控制面板</p>
 
@@ -404,20 +418,17 @@
       dot.className = `status-dot ${state}`;
     }
 
-    // ── Magicplan deep link ────────────────────────────────────────────────
-    function openMagicplan() {
-      let appOpened = false;
-      const onHide = () => { if (document.hidden) appOpened = true; };
-      document.addEventListener('visibilitychange', onHide);
-
-      window.location.href = 'magicplan://';
-
-      setTimeout(() => {
-        document.removeEventListener('visibilitychange', onHide);
-        if (!appOpened) {
-          window.location.href = 'https://apps.apple.com/app/magicplan/id427424432';
-        }
-      }, 2500);
+    // ── Mobile sidebar toggle ──────────────────────────────────────────────
+    function toggleSidebar() {
+      const s = document.getElementById('sidebar');
+      const o = document.getElementById('sidebarOverlay');
+      const isOpen = s.classList.contains('open');
+      s.classList.toggle('open', !isOpen);
+      o.classList.toggle('hidden', isOpen);
+    }
+    function closeSidebar() {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebarOverlay').classList.add('hidden');
     }
 
     // ── File Upload ────────────────────────────────────────────────────────
